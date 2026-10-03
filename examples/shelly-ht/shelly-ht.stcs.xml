@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ST:Shelly-HT — Shelly H&T (humidity & temperature) sensor bridge
+
+  Typical Gen1 status endpoint: GET http://<device-ip>/status
+  JSON fields used here: $.tmp.value (°C), $.hum.value (%).
+
+  Goal: expose room temperature and humidity as starter-core inputs.
+  Sensor-only pipeline — no writers, no ST outputs.
+
+  Pipeline (×2 fields):
+
+    http-transport (status-http)
+      → json-reader (status-json)
+      → datapoint temperature / humidity
+      → bind → ST input ShellyHT:*
+
+  Edit <url> to match your device address before running.
+-->
+<stcs version="1">
+
+  <!-- Identity published to starter-core / mDNS at runlevel 3. -->
+  <global>
+    <service-name>ST:Shelly-HT</service-name>
+    <service-version>0.1.0</service-version>
+  </global>
+
+  <!--
+    Read transport: poll the device /status JSON every 15 seconds
+    (ms=0, sec=*/15). No authentication on a typical LAN H&T.
+  -->
+  <transports>
+    <transport id="status-http" plugin="http-transport">
+      <url>http://192.168.1.100/status</url>
+      <headers>
+        <header name="Accept" value="application/json"/>
+      </headers>
+      <method>GET</method>
+      <poll-cron>0 */15 * * * *</poll-cron>
+      <auth type="none"/>
+    </transport>
+  </transports>
+
+  <!-- Pipeline values; no transforms (device already reports usable floats). -->
+  <datapoints>
+    <datapoint id="temperature"/>
+    <datapoint id="humidity"/>
+  </datapoints>
+
+  <!--
+    Parse each poll once. Gen1 Shelly H&T nests temperature under tmp
+    and humidity under hum.
+  -->
+  <readers>
+    <reader id="status-json" plugin="json-reader" transport="status-http">
+      <map datapoint="temperature" path="$.tmp.value"/>
+      <map datapoint="humidity" path="$.hum.value"/>
+    </reader>
+  </readers>
+
+  <!-- starter-core inputs with physical units and sensible ranges. -->
+  <inputs>
+    <input name="ShellyHT:temperature"
+           description="Room temperature from Shelly H&amp;T"
+           unit="celsius" min="-10" max="50" step="0.01" val="0"/>
+    <input name="ShellyHT:humidity"
+           description="Room humidity from Shelly H&amp;T"
+           unit="percent" min="0" max="100" step="0.1" val="0"/>
+  </inputs>
+
+  <!-- Datapoint → ST input (read path complete). -->
+  <bindings>
+    <bind datapoint="temperature" input="ShellyHT:temperature"/>
+    <bind datapoint="humidity" input="ShellyHT:humidity"/>
+  </bindings>
+
+</stcs>

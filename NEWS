@@ -1,0 +1,8 @@
+STARTER Configurable Service NEWS - User visible changes
+
+* First release 1.0.0 (2026-10-03) [Christian Brunello]
+
+- Initial release of starter-configurable-service: XML-driven bridge between
+  external data sources/sinks and starter-core inputs/outputs.
+- Shipped plugins: file/http/process transports; json/stream readers and
+  writers; formula and sampling transforms.

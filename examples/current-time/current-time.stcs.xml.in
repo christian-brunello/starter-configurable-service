@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ST:Time — wall-clock fields for starter-core rules
+
+  Helper: examples/current-time/current-time.c (built/installed as current-time).
+  The binary prints one JSON object on stdout and exits (oneshot).
+
+  Goal: expose year/month/day/hour/minute and minute-of-day as ST inputs
+  so rules can schedule by clock without embedding time logic in STCS.
+  Sensor-only pipeline — no writers, no ST outputs.
+
+  Pipeline:
+
+    process-transport (current-time-process)
+      → json-reader (current-time-json)
+      → datapoints year / month / day / hour / minute / minuteOfDay
+      → bind → TIME:*
+
+  The <command> path uses bindir from configure (substituted at build time).
+  Change <user> if the host has no "starter" account (e.g. nobody).
+-->
+<stcs version="1">
+
+  <global>
+    <service-name>ST:Time</service-name>
+    <service-version>0.1.0</service-version>
+  </global>
+
+  <!--
+    Oneshot exec every minute at second 1. Child runs as starter; use another
+    account if preferred. timeout-ms is short: the helper only formats time.
+  -->
+  <transports>
+    <transport id="current-time-process" plugin="process-transport">
+      <command>@bindir@/current-time</command>
+      <user>starter</user>
+      <timeout-ms>1000</timeout-ms>
+      <mode>read</mode>
+      <poll-cron>0 1 * * * * *</poll-cron>
+    </transport>
+  </transports>
+
+  <datapoints>
+    <datapoint id="year"/>
+    <datapoint id="month"/>
+    <datapoint id="day"/>
+    <datapoint id="hour"/>
+    <datapoint id="minute"/>
+    <datapoint id="minuteOfDay"/>
+  </datapoints>
+
+  <!--
+    JSON keys from current-time.c. dayMinutes → minuteOfDay datapoint.
+    Extra helper fields (second, unix, …) are ignored.
+  -->
+  <readers>
+    <reader id="current-time-json" plugin="json-reader" transport="current-time-process">
+      <map datapoint="year" path="$.year"/>
+      <map datapoint="month" path="$.month"/>
+      <map datapoint="day" path="$.day"/>
+      <map datapoint="hour" path="$.hour"/>
+      <map datapoint="minute" path="$.minute"/>
+      <map datapoint="minuteOfDay" path="$.dayMinutes"/>
+    </reader>
+  </readers>
+
+  <!--
+    flags=no-history: clock ticks every minute; keeping a long history of
+    wall-clock fields is usually noise for starter-core.
+  -->
+  <inputs>
+    <input name="TIME:year" description="Current year"
+           unit="null" min="0" max="3000" step="1" val="0" flags="no-history"/>
+    <input name="TIME:month" description="Current month"
+           unit="null" min="1" max="12" step="1" val="1" flags="no-history"/>
+    <input name="TIME:day" description="Current day"
+           unit="null" min="1" max="31" step="1" val="1" flags="no-history"/>
+    <input name="TIME:hour" description="Current hour"
+           unit="null" min="0" max="23" step="0.01" val="0" flags="no-history"/>
+    <input name="TIME:minute" description="Current minute"
+           unit="null" min="0" max="59" step="0.01" val="0" flags="no-history"/>
+    <input name="TIME:minuteOfDay" description="Current minute of the day"
+           unit="null" min="0" max="1440" step="1" val="0" flags="no-history"/>
+  </inputs>
+
+  <bindings>
+    <bind datapoint="year" input="TIME:year"/>
+    <bind datapoint="month" input="TIME:month"/>
+    <bind datapoint="day" input="TIME:day"/>
+    <bind datapoint="hour" input="TIME:hour"/>
+    <bind datapoint="minute" input="TIME:minute"/>
+    <bind datapoint="minuteOfDay" input="TIME:minuteOfDay"/>
+  </bindings>
+
+</stcs>

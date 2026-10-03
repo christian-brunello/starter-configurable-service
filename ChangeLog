@@ -1,0 +1,66 @@
+2026-10-03  Christian Brunello  <brncrs@gmail.com>
+
+	Add GPL/LGPL license headers matching starter-core.
+
+	* include/, lib/: LGPL 2.1+ headers on library sources and
+	public includes.
+	* src/, plugins/, examples/, doc/Makefile.am: GPL-3+ headers.
+	* COPYING.LESSER, README, Makefile.am: Ship LGPL text and
+	document the dual-license split.
+	* lib/log.c, src/transport.c: Remove unused orphan files.
+
+	Remove the tools/ tree from the project.
+
+	* tools/: Delete (helpers are out of tree; examples cover samples).
+	* Makefile.am, configure.ac: Drop tools SUBDIRS / AC_CONFIG_FILES.
+	* doc/starter-configurable-service.texi, .gitignore: Drop tools
+	references.
+
+	Add current-time example with helper binary and Autotools build.
+
+	* examples/current-time/current-time.c,
+	examples/current-time/current-time.stcs.xml.in,
+	examples/current-time/Makefile.am: New ST:Time sample (process-
+	transport + json-reader) and oneshot helper.
+	* examples/Makefile.am, configure.ac, Makefile.am: Build and
+	install under examples/; drop tools/current-time.
+	* README, doc/starter-configurable-service.texi: Document the
+	example.
+
+	Keep only the space-track example.
+
+	* examples/full-config.xml, examples/kit-east-light.xml,
+	examples/space-track-output.json: Remove.
+	* README, doc/starter-configurable-service.texi: Point at
+	examples/space-track/ instead of full-config.xml.
+
+	Restructure manual into presentation + reference; document plugins.
+
+	* doc/starter-configurable-service.texi: Split overview from a
+	detailed Configuration Reference; add How Plugins Fit In and a
+	Writing Plugins chapter (lifecycle, exports, base-class APIs).
+
+	Document TinyExpr and ship its Zlib license notice.
+
+	* COPYING.ZLIB, doc/zlib.texi: Zlib license text for TinyExpr.
+	* README, Makefile.am: Mention and distribute COPYING.ZLIB.
+	* doc/starter-configurable-service.texi, doc/Makefile.am: Expand
+	formula-transform; add Third-party Components appendix.
+
+	Make top-level "make doc" build the PDF manual.
+
+	* Makefile.am: Add .PHONY doc target that runs make -C doc pdf
+	(directory name "doc/" made bare "make doc" a no-op).
+	* README: Document make doc.
+
+	Align project tree with starter-core GNU layout; add Texinfo manual.
+
+	* configure.ac: Drop AM_INIT_AUTOMAKE foreign; require makeinfo;
+	add doc/Makefile; use project bug address.
+	* Makefile.am: Build doc/ subdirectory.
+	* README, AUTHORS, NEWS, ChangeLog, COPYING, autogen.sh: New
+	GNU-style project files.
+	* doc/starter-configurable-service.texi, doc/Makefile.am,
+	doc/fdl.texi, doc/gpl.texi, doc/version.texi: Project manual
+	(covers service, plugins, and configuration; not tools/).
+	* .gitignore: Expand for Autotools and Texinfo build products.

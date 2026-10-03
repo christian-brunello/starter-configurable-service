@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ST:SpaceTrack — read-only ISS tracker (sensor-only pipeline)
+
+  Public API: GET https://api.wheretheiss.at/v1/satellites/25544
+  (NORAD id 25544 = International Space Station)
+
+  Goal: expose ISS latitude, longitude and altitude as starter-core
+  inputs so rules or other services can consume them. There is no
+  writer and no ST output — nothing is commanded.
+
+  Pipeline (×3 fields):
+
+    http-transport (iss-http)
+      → json-reader (iss_json)
+      → datapoint + formula-transform (round to 0.0001)
+      → bind → ST input SPTR:*
+
+  Blocks below follow the usual stcs section order.
+-->
+<stcs version="1">
+
+  <!-- Identity published to starter-core / mDNS when runlevel 3 starts. -->
+  <global>
+    <service-name>ST:SpaceTrack</service-name>
+    <service-version>0.1.0</service-version>
+  </global>
+
+  <!--
+    Read transport: poll the ISS JSON endpoint every 15 minutes on the
+    clock (ms=0, sec=0). No authentication; Accept prefers JSON.
+  -->
+  <transports>
+    <transport id="iss-http" plugin="http-transport">
+      <url>https://api.wheretheiss.at/v1/satellites/25544</url>
+      <headers>
+        <header name="Accept" value="application/json"/>
+      </headers>
+      <method>GET</method>
+      <poll-cron>0 0 */15 * * *</poll-cron>
+      <auth type="none"/>
+    </transport>
+  </transports>
+
+  <!--
+    One datapoint per field. formula-transform rounds to four decimal
+    places (# → VALUE) so noisy floats do not flood history / rules.
+  -->
+  <datapoints>
+    <datapoint id="latitude">
+      <transform plugin="formula-transform">
+        <expr>floor(# * 10000 + 0.5) / 10000</expr>
+      </transform>
+    </datapoint>
+    <datapoint id="longitude">
+      <transform plugin="formula-transform">
+        <expr>floor(# * 10000 + 0.5) / 10000</expr>
+      </transform>
+    </datapoint>
+    <datapoint id="altitude">
+      <transform plugin="formula-transform">
+        <expr>floor(# * 10000 + 0.5) / 10000</expr>
+      </transform>
+    </datapoint>
+  </datapoints>
+
+  <!--
+    Parse the HTTP body once per poll; each JSONPath feeds its datapoint.
+    Numeric JSON values need no text-to-value.
+  -->
+  <readers>
+    <reader id="iss_json" plugin="json-reader" transport="iss-http">
+      <map datapoint="latitude" path="$.latitude"/>
+      <map datapoint="longitude" path="$.longitude"/>
+      <map datapoint="altitude" path="$.altitude"/>
+    </reader>
+  </readers>
+
+  <!--
+    starter-core inputs. unit=null (coordinates / km as plain numbers).
+    step matches the rounded transform.
+  -->
+  <inputs>
+    <input name="SPTR:latitude" description="ISS latitude"
+           unit="null" min="-90" max="90" step="0.0001" val="0"/>
+    <input name="SPTR:longitude" description="ISS longitude"
+           unit="null" min="-180" max="180" step="0.0001" val="0"/>
+    <input name="SPTR:altitude" description="ISS altitude (km)"
+           unit="null" min="0" max="1000" step="0.0001" val="0"/>
+  </inputs>
+
+  <!-- Datapoint → ST input (read path complete). -->
+  <bindings>
+    <bind datapoint="latitude" input="SPTR:latitude"/>
+    <bind datapoint="longitude" input="SPTR:longitude"/>
+    <bind datapoint="altitude" input="SPTR:altitude"/>
+  </bindings>
+
+</stcs>

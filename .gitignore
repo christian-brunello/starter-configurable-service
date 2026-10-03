@@ -1,0 +1,66 @@
+# Autotools / configure output
+Makefile
+autom4te.cache/
+config.log
+config.status
+libtool
+configure~
+*.in~
+stamp-h1
+src/stamp-h1
+src/autoconf.h
+
+# Libtool / compiler products
+.deps/
+.libs/
+*.o
+*.lo
+*.la
+*.lai
+*.a
+*.so
+*.so.*
+*.d
+
+# Generated install helpers
+starter-configurable-service.pc
+
+# Built programs
+/src/starter-configurable-service
+/examples/current-time/current-time
+/examples/current-time/current-time.stcs.xml
+
+# Texinfo / TeX intermediate files
+doc/*.info
+doc/*.pdf
+doc/*.t2p/
+doc/*.t2d/
+doc/*.aux
+doc/*.cp
+doc/*.cps
+doc/*.fn
+doc/*.fns
+doc/*.ky
+doc/*.log
+doc/*.pg
+doc/*.toc
+doc/*.tp
+doc/*.tps
+doc/*.vr
+doc/*.vrs
+doc/stamp-vti
+
+# Editor / OS junk
+*~
+*.swp
+*.swo
+.DS_Store
+
+# Local debug / tooling output
+*.log
+core
+core.*
+vgcore.*
+
+# Aider / local agent caches
+.aider*

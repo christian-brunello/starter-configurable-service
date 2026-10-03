@@ -1,0 +1,71 @@
+STARTER Configurable Service
+============================
+
+1. OVERVIEW
+===========
+
+starter-configurable-service (STCS) is a STARTER satellite that turns an XML
+configuration into a running bridge between the outside world and
+starter-core inputs/outputs.
+
+Data flows through a pipeline of plugins:
+
+  transport  →  reader  →  datapoint (+ transforms)  →  ST input
+  ST output  →  datapoint  →  writer  →  transport
+
+For the full technical manual, build the PDF with:
+
+    $ make doc
+
+(also: make -C doc info).
+
+2. PREREQUISITES
+================
+
+* GLib 2.0 / GObject / GIO / GModule (libglib2.0-dev)
+* starter-core (pkg-config: starter-core)
+* libxml2 (libxml2-dev)
+* json-glib (libjson-glib-dev)
+* SQLite3 (libsqlite3-dev)
+* libsoup 3.x or 2.4 >= 2.58 (libsoup-3.0-dev or libsoup2.4-dev)
+* Autotools (autoconf, automake, libtool)
+* Texinfo (makeinfo) to build the manual
+
+3. BUILDING FROM SOURCE
+=======================
+
+    $ ./autogen.sh
+    $ ./configure
+    $ make
+    $ sudo make install
+
+4. RUNNING
+==========
+
+    $ starter-configurable-service --config /path/to/service.xml
+
+See the manual and the samples under examples/space-track/,
+examples/shelly-ht/, and examples/current-time/ for the configuration
+language. The current-time example also builds and installs a small
+helper binary used by process-transport.
+
+5. LICENSE
+==========
+
+This project uses a dual-licensing strategy:
+* The service executable, plugins, and examples are distributed under the
+  GNU General Public License (GPL) version 3 or later.
+  See the 'COPYING' file for details.
+* The libstarter-configurable-service library and public headers are
+  distributed under the GNU Lesser General Public License (LGPL)
+  version 2.1 or later. See the 'COPYING.LESSER' file for details.
+
+The formula-transform plugin embeds TinyExpr by Lewis Van Winkle
+(http://CodePlea.com), distributed under the Zlib license. See
+'COPYING.ZLIB' and the notices in
+plugins/transform/formula-transform/tinyexpr.c and tinyexpr.h.
+
+6. AUTHORS
+==========
+
+See the AUTHORS file for a complete list of contributors.

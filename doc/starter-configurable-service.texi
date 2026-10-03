@@ -1,0 +1,1281 @@
+\input texinfo   @c -*-texinfo-*-
+@setfilename starter-configurable-service.info
+@settitle Starter Configurable Service Documentation
+@include version.texi
+
+@paragraphindent 0
+
+@copying
+Copyright @copyright{} 2026 Christian Brunello.
+
+Permission is granted to copy, distribute and/or modify this document
+under the terms of the GNU Free Documentation License, Version 1.3
+or any later version published by the Free Software Foundation;
+with no Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.
+A copy of the license is included in the section entitled ``GNU Free
+Documentation License''.
+@end copying
+
+@titlepage
+@title STARTER Configurable Service
+@subtitle XML-driven bridge for starter-core
+@author Christian Brunello
+@page
+@vskip 0pt plus 1filll
+@insertcopying
+@end titlepage
+
+@ifnottex
+@node Top
+@top STARTER Configurable Service
+@insertcopying
+@end ifnottex
+
+@contents
+
+@node Introduction
+@unnumbered Introduction
+
+@acronym{STARTER} (@emph{Simple distribuTed smART conTrollER}) is a
+distributed automation core. Services expose typed @dfn{inputs} and
+@dfn{outputs} over D-Bus and mDNS; the core applies near-natural-language
+rules to those values.
+
+@command{starter-configurable-service} (@acronym{STCS}) is a satellite
+process that turns an @acronym{XML} configuration into a running bridge
+between the outside world and those starter-core I/O objects. Instead of
+writing a dedicated C service for every device or @acronym{API}, you
+describe transports, parsers, datapoints, and bindings in a single file.
+
+This manual is organised in two layers:
+
+@itemize
+@item
+@emph{Presentation} chapters explain what the service is, how pieces fit
+together, and how to build and run it---without drowning in every XML
+attribute.
+@item
+The @ref{Configuration Reference} spells out every configuration option
+for the shipped plugins. @ref{Writing Plugins} explains how to add your
+own.
+@end itemize
+
+@node Concepts
+@chapter Concepts
+
+@node Pipeline Overview
+@section Pipeline Overview
+
+All live values inside @acronym{STCS} are @code{gdouble}. Text and binary
+payloads are converted at the edges (readers and writers). The usual
+directions are:
+
+@example
+external source
+  → transport (read)
+  → reader (parse → numbers)
+  → datapoint (+ optional transforms)
+  → bind → ST input
+@end example
+
+@example
+ST output
+  → bind → datapoint
+  → writer (numbers → payload)
+  → transport (write)
+@end example
+
+A second datapoint can be bound to the same @acronym{ST} output with
+@code{role="feedback"} so that device state can be mirrored back and
+manual overrides detected (@pxref{Command and Feedback}).
+
+@node Component Roles
+@section Component Roles
+
+@table @asis
+@item Transport
+Moves opaque bytes between the service and the outside world (file,
+@acronym{HTTP}, child process, @dots{}). A read transport delivers
+payloads; a write transport accepts a payload and reports success or
+failure.
+
+@item Reader
+Consumes payloads from exactly one read transport, extracts numbers, and
+pushes them into datapoints.
+
+@item Writer
+Watches datapoints, builds a payload, and sends it through exactly one
+write transport.
+
+@item Datapoint
+Named numeric value in the pipeline. Optional transforms sit on the
+datapoint and reshape every push.
+
+@item Transform
+A pure numeric stage on a datapoint (formula, sampling window, @dots{}).
+
+@item Binding
+Connects a datapoint to a starter-core input or output declared in the
+same configuration.
+@end table
+
+Each transport may be claimed by at most one reader @emph{or} one
+writer---not both, and not shared.
+
+@node Thinking in Pipelines
+@section Thinking in Pipelines
+
+@acronym{STCS} is not where you write automation logic. That belongs in
+@command{starter-core} rules. This service is a @emph{bridge}: you shape
+each external signal as a short pipeline that ends on an @acronym{ST}
+input or starts from an @acronym{ST} output.
+
+Ask three questions for every device or feed:
+
+@enumerate
+@item
+@strong{What should enter STARTER?} A temperature, a clock, a switch
+state---anything the rules might @emph{read}. That wants a
+@emph{read pipeline}: transport → reader → datapoint →
+@code{<bind @dots{} input="..."/>}.
+@item
+@strong{What should leave STARTER?} A setpoint, a relay command---anything
+the rules might @emph{write}. That wants a @emph{write pipeline}:
+@code{<bind @dots{} output="..."/>} → datapoint → writer → transport.
+@item
+@strong{Does the device report its own state?} If yes, add a
+@emph{feedback} datapoint on the same output (@code{role="feedback"}) so
+@acronym{STCS} can mirror the field and detect manual overrides
+(@pxref{Command and Feedback}).
+@end enumerate
+
+Numeric cosmetics (unit conversion, rounding, averaging) stay on
+datapoint transforms. Decisions such as ``turn the light on after
+sunset'' stay in the core rules file.
+
+@subheading Example: Time as an input
+
+Suppose you want rules that depend on the time of day (for example
+minutes since midnight). Time is not a lamp---it is a @emph{sensor} for
+the automation brain.
+
+@enumerate
+@item
+Choose a source: a small helper that prints JSON, an @acronym{HTTP}
+clock @acronym{API}, or a file updated by cron.
+@item
+Configure a @emph{read} transport (@code{process-transport} or
+@code{http-transport}) that fetches that payload on a schedule.
+@item
+Map the field with @code{json-reader} (or @code{stream-reader}) into a
+datapoint, optionally through @code{text-to-value type="date"} to obtain
+@code{day-minutes}.
+@item
+Bind the datapoint to an @acronym{ST} input, e.g.@: @code{CLK:DayMinutes}.
+@end enumerate
+
+From there, @command{starter-core} sees a normal input. A rule can compare
+it to sunset, a schedule, or another service---without @acronym{STCS}
+knowing anything about lamps.
+
+@subheading Example: A light switched by those rules
+
+The lamp is the @emph{actuator}. It usually needs both directions:
+
+@itemize
+@item
+@strong{Command.} An @acronym{ST} output (e.g.@: @code{KitEastLight:switch})
+bound to a command datapoint, a @code{stream-writer} that turns
+@code{0}/@code{1} into @code{false}/@code{true}, and an
+@code{http-transport} with @code{write-target=url} that calls the device
+@acronym{RPC}.
+@item
+@strong{Feedback.} A second transport (or the same status endpoint on a
+poll) read by @code{json-reader} into a feedback datapoint bound to the
+@emph{same} output with @code{role="feedback"}.
+@end itemize
+
+The ``if time past sunset then light on'' logic lives in the core. This
+service only keeps the output aligned with the physical switch and
+pushes commands when the core (or a peer) changes the value.
+
+@subheading Example: Sensor only
+
+An outdoor temperature from a JSON @acronym{API} is a one-way story:
+poll with @code{http-transport}, parse with @code{json-reader}, optional
+@code{formula-transform} / @code{sampling-transform}, bind to an input.
+No writer, no output.
+
+@subheading Example: Setpoint only (with optional echo)
+
+A boiler flow setpoint is primarily a write pipeline. If the cloud or
+device also returns the current setpoint, add a feedback map so the
+@acronym{ST} output does not drift from reality and so a change made on
+the boiler panel can raise @code{MANUAL_OVERRIDE}.
+
+@subheading A practical sketch
+
+@example
+Want: rules use time + drive a Shelly switch
+
+STCS config:
+  [read]  process/http ``now'' → json-reader → DayMinutes → INPUT
+  [read]  http GetStatus     → json-reader → switch-fb   → OUTPUT (feedback)
+  [write] OUTPUT (command)   → stream-writer → http Switch.Set
+
+starter-core rules:
+  when DayMinutes crosses threshold → set KitEastLight:switch
+@end example
+
+Draw the arrows on paper before editing @acronym{XML}. If a value is
+consumed by rules, it must become an input. If a value is produced by
+rules, it must become an output---and if the hardware talks back, give
+that output a feedback path.
+
+@node How Plugins Fit In
+@section How Plugins Fit In
+
+Almost every concrete behaviour (how to talk @acronym{HTTP}, how to parse
+JSON, how to evaluate a formula) lives in a @dfn{plugin}: a shared library
+(@code{.so}) loaded at runlevel 0.
+
+@itemize
+@item
+At startup the service scans a plugin directory (see @option{--plugin-dir}
+/ @env{STCS_PLUGIN_PATH}).
+@item
+Each module exports metadata (name, category, version). The name is what
+you put in the config @code{plugin="..."} attribute.
+@item
+Categories are @code{transport}, @code{reader}, @code{writer}, and
+@code{transform}.
+@item
+When the @acronym{XML} is parsed, @acronym{STCS} instantiates the named
+plugin and feeds it its configuration subtree.
+@end itemize
+
+Shipped plugins cover common cases; custom devices or protocols are added
+by dropping another @code{.so} in the plugin directory
+(@pxref{Writing Plugins}).
+
+@node Runlevels
+@section Runlevels
+
+The process boots through internal runlevels (advanced by a short timer):
+
+@table @code
+@item 0
+Scan the plugin directory and register plugin types.
+@item 1
+Parse the @acronym{XML} config and instantiate objects.
+@item 2
+Wire bindings, reader sync hooks, and writer acknowledgement hooks.
+@item 3
+Start the starter-core server (service name / version from
+@code{<global>}) so peer discovery and D-Bus I/O become available.
+@end table
+
+Feedback alignment before runlevel 3 is treated as startup sync (no manual
+override). From runlevel 3 onward, idle mismatches can raise
+@code{MANUAL_OVERRIDE} on the output (@pxref{Command and Feedback}).
+
+@node Command and Feedback
+@section Command and Feedback
+
+@subheading Command path
+
+@enumerate
+@item
+An @acronym{ST} output value changes (local set or peer write).
+@item
+The command binding pushes the value into the command datapoint
+(transforms run).
+@item
+The writer rebuilds its template and starts a transport write.
+@item
+On completion or error the writer acknowledgement hook updates the output
+write state (@code{idle} / @code{failed}). Pending writes skip
+manual-override logic on feedback mismatches.
+@end enumerate
+
+Write transports keep a queue of depth 1: a newer write replaces a pending
+one (the superseded attempt is cancelled).
+
+@subheading Feedback path
+
+@enumerate
+@item
+A reader begins/ends a parse; linked outputs are marked syncing.
+@item
+Mapped feedback datapoints receive device values.
+@item
+While syncing, the runtime can align the @acronym{ST} output to feedback.
+@item
+After runlevel 3, an @emph{idle} mismatch (device ≠ commanded, no pending
+write, settle-delay elapsed) sets @code{MANUAL_OVERRIDE} and updates the
+output from feedback.
+@item
+Optional @code{<override-timeout>} on the output clears the override after
+a duration. @code{0} or absent means never auto-clear.
+@end enumerate
+
+Failed writes that later see a feedback mismatch align to the device and
+clear the failed state without raising override.
+
+Detailed bind attributes are in @ref{Bindings Reference}.
+
+@node Building and Installing
+@chapter Building and Installing
+
+@node Dependencies
+@section Dependencies
+
+@itemize
+@item GLib 2.0 / GObject / GIO / GModule
+@item @command{starter-core} (pkg-config module @code{starter-core})
+@item libxml2
+@item json-glib
+@item SQLite3
+@item libsoup 3.x, or libsoup 2.4 @math{\ge} 2.58
+@item Autotools (@command{autoconf}, @command{automake}, @command{libtool})
+@item Texinfo (@command{makeinfo}) to build this manual
+@end itemize
+
+@node Build Steps
+@section Build Steps
+
+@example
+$ ./autogen.sh
+$ ./configure
+$ make
+$ sudo make install
+@end example
+
+Plugins install under the package plugin directory (override at runtime
+with @option{--plugin-dir} or @env{STCS_PLUGIN_PATH}).
+
+@example
+$ make doc          # PDF manual
+$ make -C doc info  # Info manual
+@end example
+
+@node Running the Service
+@chapter Running the Service
+
+@node Command Line
+@section Command Line
+
+@example
+starter-configurable-service [OPTION...]
+@end example
+
+@table @option
+@item -h, --help
+Print a short usage summary (provided automatically by GLib
+@code{GOptionContext}) and exit.
+
+@item -c, --config=@var{FILE}
+Path to the service configuration file (required for a useful run).
+
+@item -P, --config-preprocessor=@var{CMD}
+Shell command used to preprocess the config before parsing.
+@code{@{F@}} is replaced with the config path. An empty value disables
+preprocessing. Default may also come from
+@env{STCS_CONFIG_PREPROCESSOR}.
+
+@item -p, --plugin-dir=@var{DIR}
+Directory to scan for @code{.so} plugins. Falls back to
+@env{STCS_PLUGIN_PATH}, then the compile-time default install path.
+
+@item -V, --version
+Print the version string and exit.
+@end table
+
+@node Logging
+@section Logging
+
+The service uses GLib message logging. Domains follow component names.
+Use the usual GLib environment variables (@env{G_MESSAGES_DEBUG},
+@dots{}) when debugging.
+
+@node Configuration Overview
+@chapter Configuration Overview
+
+Root element:
+
+@example
+<?xml version="1.0" encoding="UTF-8"?>
+<stcs version="1">
+  <global>...</global>
+  <transports>...</transports>
+  <datapoints>...</datapoints>
+  <readers>...</readers>
+  <writers>...</writers>
+  <inputs>...</inputs>
+  <outputs>...</outputs>
+  <bindings>...</bindings>
+</stcs>
+@end example
+
+Top-level sections are conventional; include only what the service needs.
+Element names and attributes for every shipped plugin are listed in
+@ref{Configuration Reference}. Worked examples live under
+@file{examples/space-track/}, @file{examples/shelly-ht/}, and
+@file{examples/current-time/}.
+
+@section Shipped Plugins
+
+@table @code
+@item file-transport
+Read or write a local file.
+@item http-transport
+@acronym{HTTP} client (GET poll, POST/PUT body write, or URL write).
+@item process-transport
+Oneshot external command (stdout read or stdin write).
+@item json-reader / stream-reader
+Parse JSON or opaque byte streams into datapoints.
+@item json-writer / stream-writer
+Build JSON or text/binary templates from datapoints.
+@item formula-transform
+Evaluate a TinyExpr formula on each push.
+@item sampling-transform
+Reduce a sliding or held window of samples.
+@end table
+
+@node Configuration Reference
+@chapter Configuration Reference
+
+This chapter is the detailed option list for configuration authors.
+
+@node Document and Global
+@section Document and Global
+
+@table @code
+@item <stcs version="1">
+Root element. @code{version} is the config schema version.
+@item <service-name>
+Human-readable identity registered with starter-core / mDNS.
+@item <service-version>
+@code{major.minor.micro}, each component in @math{0..255}.
+@end table
+
+@node Cron Reference
+@section Cron Expressions
+
+Where a transport accepts @code{<poll-cron>}, the schedule uses
+@strong{6 or 7} fields:
+
+@example
+ms sec min hour dom month [dow]
+@end example
+
+Examples: @code{0 0 * * * *} (every minute on the clock);
+@code{0 0 */15 * * *} (every 15 minutes); @code{0 */30 * * * *} (every
+30 seconds).
+
+@node Transports Reference
+@section Transports
+
+Declare under @code{<transports>}. Each entry needs @code{id} and
+@code{plugin}.
+
+@node File Transport Reference
+@subsection file-transport
+
+@example
+<transport id="file-in" plugin="file-transport">
+  <path>/var/tmp/in.json</path>
+  <mode>read</mode>              <!-- read | write | append -->
+  <read-mode>stream</read-mode>  <!-- stream | window -->
+  <reopen>reopen</reopen>        <!-- keep | reopen -->
+  <poll-cron>0 0 * * * *</poll-cron>
+</transport>
+@end example
+
+@table @code
+@item path
+File path.
+@item mode
+@code{read}, @code{write}, or @code{append} (exclusive).
+@item read-mode / write-mode
+@code{stream} (whole file / stream) or @code{window} (fixed
+@code{offset}+@code{size}).
+@item reopen
+@code{keep} or @code{reopen}: how the file descriptor is handled across
+operations.
+@item poll-cron
+Optional for read: periodic re-read.
+@item offset / size
+Required for @code{window} mode (byte offset and length).
+@end table
+
+@node HTTP Transport Reference
+@subsection http-transport
+
+@itemize
+@item @code{GET} with @code{<poll-cron>} = read.
+@item @code{POST}/@code{PUT} (no poll) = write; payload as body by default.
+@item @code{GET}/@code{POST}/@code{PUT} with
+@code{<write-target>url</write-target>} = write by substituting
+@code{@{@{payload@}@}} in @code{<url>} (percent-encoded); empty body.
+@end itemize
+
+@example
+<transport id="http-status" plugin="http-transport">
+  <url>https://example.com/api/v1/status</url>
+  <method>GET</method>
+  <headers>
+    <header name="Accept" value="application/json"/>
+  </headers>
+  <poll-cron>0 0 */5 * * *</poll-cron>
+  <cookie-jar>/var/tmp/cookies.txt</cookie-jar>
+  <auth type="none"/>
+</transport>
+@end example
+
+@table @code
+@item url
+Request URL. For URL writes, include @code{@{@{payload@}@}}.
+@item method
+@code{GET}, @code{POST}, or @code{PUT}.
+@item write-target
+@code{body} (default) or @code{url}.
+@item headers / header
+Optional request headers (@code{name} + @code{value}).
+@item poll-cron
+Required for read mode.
+@item cookie-jar
+Filesystem path for a persistent cookie jar. Omit for an in-memory jar
+private to that transport. When two or more HTTP transports use the
+@emph{same} path, they share the on-disk cookie store (for example login
+and data transports reusing a session).
+@item auth
+See below.
+@end table
+
+Authentication (@code{<auth type="...">}):
+
+@table @code
+@item none
+No credentials.
+@item basic
+@code{<username>}, @code{<password>}.
+@item header
+@code{<token>} sent as Authorization (Bearer-style).
+@item form
+Login to @code{<login-url>} with @code{<login-method>}, then
+username/password or explicit @code{<body>} /
+@code{<content-type>}. Optional @code{<relogin-on-status>} (e.g.@: 401).
+@end table
+
+@node Process Transport Reference
+@subsection process-transport
+
+Oneshot @code{exec} (no shell).
+
+Mandatory: @code{<command>}, @code{<user>}, @code{<timeout-ms>} (@math{> 0}).
+
+@example
+<transport id="helper" plugin="process-transport">
+  <command>/usr/local/bin/fetch-status</command>
+  <arg>--json</arg>
+  <user>nobody</user>
+  <timeout-ms>5000</timeout-ms>
+  <mode>read</mode>
+  <poll-cron>0 0 * * * *</poll-cron>
+</transport>
+@end example
+
+@table @code
+@item command
+Executable path (no shell).
+@item arg
+Repeatable argv element.
+@item user
+After @code{fork}, the child drops privileges to this account.
+@item timeout-ms
+On expiry the child is killed; the transport reports an error.
+@item mode
+@code{read} (default): capture stdout until EOF, wait for exit.
+@code{write}: write the payload to stdin, close stdin, wait for exit.
+@item workdir
+Optional working directory.
+@item poll-cron
+Optional for read.
+@end table
+
+Stderr is logged, never mixed into the data payload. Non-zero exit status
+is an error.
+
+@node Datapoints Reference
+@section Datapoints and Transforms
+
+@example
+<datapoint id="temp-rounded">
+  <transform plugin="formula-transform">
+    <expr>floor(# * 10 + 0.5) / 10</expr>
+  </transform>
+</datapoint>
+@end example
+
+Transforms are optional and applied in document order on every push.
+
+@node Formula Transform Reference
+@subsection formula-transform
+
+Uses the embedded @uref{https://codeplea.com/tinyexpr,TinyExpr} library
+(Lewis Van Winkle): arithmetic, comparisons, and the usual math helpers
+(@code{floor}, @code{abs}, @code{sin}, @dots{}).
+
+@table @code
+@item expr
+Expression string. @code{#} is rewritten to @code{VALUE} (the incoming
+datapoint value) before compilation. The compiled expression is cached.
+@end table
+
+License and attribution: @ref{Third-party Components}, @file{COPYING.ZLIB}.
+
+@node Sampling Transform Reference
+@subsection sampling-transform
+
+@example
+<transform plugin="sampling-transform">
+  <window samples="10"/>   <!-- or duration="5m" -->
+  <reduce>avg</reduce>     <!-- avg | min | max | median -->
+  <mode>sliding</mode>     <!-- sliding | hold -->
+</transform>
+@end example
+
+@table @code
+@item window samples="N"
+Fixed-length sample window.
+@item window duration="..."
+Time window: @code{300}, @code{300s}, @code{5m}, @code{1h}.
+Requires @code{mode=hold}.
+@item reduce
+@code{avg}, @code{min}, @code{max}, or @code{median}.
+@item mode
+@code{sliding} (default) or @code{hold}.
+@item mode=sliding
+Reduce over a sliding window on every push; when full, drop the oldest
+sample.
+@item mode=hold + samples
+Reduce every @var{N} samples; hold the last reduced value between updates.
+@item mode=hold + duration
+Clock-aligned buckets. Emit when the first sample of a new bucket arrives.
+Failed reads do not shift the phase.
+@end table
+
+@node Readers Reference
+@section Readers
+
+Readers bind with @code{transport="..."}.
+
+@node JSON Reader Reference
+@subsection json-reader
+
+@example
+<reader id="api" plugin="json-reader" transport="http-status">
+  <map datapoint="temp-raw" path="$.temperature"/>
+  <map datapoint="mode-fb" path="$.relay">
+    <text-to-value type="map">
+      <item text="off" value="0"/>
+      <item text="on" value="1"/>
+      <default value="0"/>
+    </text-to-value>
+  </map>
+</reader>
+@end example
+
+@itemize
+@item Same path may fan out to multiple datapoints.
+@item Numeric and boolean JSON convert without @code{<text-to-value>}.
+@item Missing paths log a warning and continue.
+@item At most one @code{<text-to-value>} per map
+(@pxref{Text Conversions Reference}).
+@end itemize
+
+@node Stream Reader Reference
+@subsection stream-reader
+
+Parses opaque @code{GBytes}. Each @code{<map>} needs @code{id=} and
+@code{datapoint=}, plus either @code{match=} (regex) or
+@code{offset=}+@code{length=} (bytes).
+
+@table @code
+@item group
+Regex capture index (default 0 = whole match).
+@item on-missing
+@code{warning} (default) or @code{error}.
+@item encoding
+For byte maps: @code{ascii} (default), @code{uint8}, @code{int8},
+@code{uint16be}/@code{le}, @code{int16be}/@code{le},
+@code{uint32be}/@code{le}, @code{int32be}/@code{le}.
+@item text-to-value
+Optional; at most one per map. Allowed only on @emph{regex} maps, or on
+byte maps with @code{encoding="ascii"}. Not valid with numeric byte
+encodings (@code{uint8}, @code{int16be}, @dots{}). Same child elements as
+json-reader (@pxref{Text Conversions Reference}).
+@end table
+
+@node Writers Reference
+@section Writers
+
+Writers bind with @code{transport="..."}. No flush at configure time; the
+first write happens on the first datapoint change.
+
+@table @code
+@item write-attempts
+Total attempts for the same bytes on transport failure (default 1,
+minimum 1). Cancelled superseding writes are not retried.
+@end table
+
+@node JSON Writer Reference
+@subsection json-writer
+
+@example
+<writer id="out-json" plugin="json-writer" transport="file-out">
+  <write-attempts>3</write-attempts>
+  <template><![CDATA[
+@{ "setpoint": 0, "mode": "auto" @}
+]]></template>
+  <map datapoint="out-setpoint" path="$.setpoint"/>
+  <map datapoint="out-mode" path="$.mode"/>
+</writer>
+@end example
+
+@code{<template>} must be valid JSON. Maps update simple @code{$.a.b}
+paths (no filters or array indices). The same path may be driven by
+several datapoints: each @code{value-changed} writes that path (last
+writer wins for overlapping updates). Optional @code{<value-to-text>}
+per map (at most one).
+
+@node Stream Writer Reference
+@subsection stream-writer
+
+@strong{Text} (@code{encoding="text"}, default): template with
+@code{@{@{id@}@}} placeholders; maps are @code{id=}+@code{datapoint=} only.
+Placeholders that are never updated stay as literal text in the output.
+
+@strong{Binary} (@code{encoding="hex"}): hex template (whitespace
+allowed); maps require @code{offset=}+@code{length=} and a numeric
+@code{encoding} as in stream-reader. @code{value-to-text} is only valid
+with @code{encoding="ascii"}.
+
+@node Text Conversions Reference
+@section Text Conversions
+
+@subheading text-to-value (readers)
+
+@table @code
+@item type="date"
+@code{<format>} (strftime-like), optional @code{<timezone>} (of the
+string; empty/@code{UTC} default), optional @code{<local-timezone>} (for
+day-relative kinds). @code{<value>}: @code{unix}, @code{unix-ms},
+@code{day-minutes}, @code{day-seconds}, @code{day-ms}.
+@item type="map"
+@code{<item text="..." value="..."/>} plus optional
+@code{<default value="..."/>}.
+@end table
+
+@subheading value-to-text (writers)
+
+@table @code
+@item type="date"
+Format a numeric timestamp/day-offset (same child elements as above).
+@item type="map"
+@code{<item value="..." text="..."/>}, @code{<default text="..."/>}.
+@end table
+
+@node IO Reference
+@section Inputs, Outputs, and Bindings
+
+@node Inputs Outputs Reference
+@subsection Declaring I/O
+
+Required attributes: @code{name}, @code{unit}, @code{min}, @code{max},
+@code{step}, @code{val}. Optional: @code{description}, @code{flags}
+(comma-separated, e.g.@: @code{no-history}).
+
+Recognised units include: @code{null}, @code{celsius}, @code{percent},
+@code{bar}, @code{onoff}, @code{enum}, @code{v}, @code{w}, @code{var},
+@code{kw}, @code{wh}, @code{kwh}, @code{seconds}, @code{minutes},
+@code{hours}.
+
+On @code{<output>}, optional @code{<override-timeout>}: bare milliseconds,
+or @code{60s} / @code{5m} / @code{1h} / @code{1000ms}. @code{0} or absent
+= never auto-clear (@pxref{Command and Feedback}).
+
+@node Bindings Reference
+@subsection Bindings
+
+@example
+<bindings>
+  <bind datapoint="temp-rounded" input="EX:temp"/>
+  <bind datapoint="out-setpoint" output="EX:setpoint"/>
+  <bind datapoint="out-mode-fb" output="EX:mode"
+        role="feedback" settle-delay="5s"/>
+</bindings>
+@end example
+
+@table @code
+@item input=
+Datapoint → @acronym{ST} input.
+@item output=
+Default @code{role} is command: output changes push the datapoint toward
+the writer.
+@item role="feedback"
+Reader-driven datapoint mirrors the output under read-sync.
+@item settle-delay
+On feedback binds: ignore mismatches for this duration after a command
+write (default @code{5s}; @code{0} disables). Same duration syntax as
+@code{override-timeout}.
+@end table
+
+@node Writing Plugins
+@chapter Writing Plugins
+
+This chapter is for developers extending @acronym{STCS} with a new
+@code{.so}.
+
+@node Plugin Lifecycle
+@section Plugin Lifecycle
+
+@enumerate
+@item
+@strong{Scan} (runlevel 0). The service opens every shared module under
+the plugin directory (files whose name ends with the platform module
+suffix, e.g.@: @code{.so}). Each module must export
+@code{stcs_plugin_get_info}. The returned @code{STCSPluginInfo} supplies
+a unique @emph{name}, a @emph{category}, and a @emph{version}. The module
+is then closed; only the metadata and path are kept.
+@item
+@strong{Instantiate} (config parse). When @acronym{XML} references
+@code{plugin="that-name"}, the service reloads the module, resolves
+@code{stcs_plugin_create}, and expects a @code{GObject} of the right
+base type (@code{STCSTransport}, @code{STCSReader}, @code{STCSWriter}, or
+@code{STCSTransform}).
+@item
+@strong{Configure}. The core calls the class @code{configure} vfunc with
+the plugin's @acronym{XML} subtree (and, for readers/writers, a datapoint
+lookup callback).
+@end enumerate
+
+Duplicate plugin names abort the scan. A missing
+@code{stcs_plugin_get_info} symbol is a hard error for that file.
+
+@node Plugin Categories and Exports
+@section Categories and Required Exports
+
+@example
+#include <gmodule.h>
+#include "plugin.h"
+#include "starter/configurable-service/transform.h" /* or transport/reader/writer */
+
+G_MODULE_EXPORT STCSPluginInfo *
+stcs_plugin_get_info(void)
+@{
+  return stcs_plugin_info_new("my-transform",
+                              STCS_PLUGIN_CATEGORY_TRANSFORM,
+                              "1.0.0");
+@}
+
+G_MODULE_EXPORT GObject *
+stcs_plugin_create(void)
+@{
+  return g_object_new(STCS_TYPE_MY_TRANSFORM, NULL);
+@}
+@end example
+
+Categories (@code{STCSPluginCategory}):
+
+@table @code
+@item STCS_PLUGIN_CATEGORY_TRANSPORT
+Subclass @code{STCSTransport}.
+@item STCS_PLUGIN_CATEGORY_READER
+Subclass @code{STCSReader}.
+@item STCS_PLUGIN_CATEGORY_WRITER
+Subclass @code{STCSWriter}.
+@item STCS_PLUGIN_CATEGORY_TRANSFORM
+Subclass @code{STCSTransform}.
+@end table
+
+The config @code{plugin="my-transform"} string must match the name passed
+to @code{stcs_plugin_info_new}.
+
+@node Building a Plugin
+@section Building and Installing
+
+Ship the module as a libtool @code{-module} shared object linked against
+@code{libstarter-configurable-service} (and @code{starter-core} /
+GLib as needed). Install it next to the other plugins so the scan finds
+it, or point @option{--plugin-dir} at your build directory while
+developing.
+
+Headers of interest:
+
+@itemize
+@item @file{starter/configurable-service/plugin.h}
+@item @file{starter/configurable-service/transport.h}
+@item @file{starter/configurable-service/reader.h}
+@item @file{starter/configurable-service/writer.h}
+@item @file{starter/configurable-service/transform.h}
+@item @file{starter/configurable-service/datapoint.h}
+@end itemize
+
+Study the shipped plugins under @file{plugins/} as templates.
+
+@node Transport Plugin API
+@section Transport Plugin API
+
+Override on @code{STCSTransportClass}:
+
+@table @code
+@item configure
+Parse the transport's @acronym{XML} children; return @code{FALSE} on error.
+@item start_write
+Begin one write. The base class guarantees at most one in flight. When
+done, call @code{stcs_transport_finish_write()} or
+@code{stcs_transport_finish_write_error()} with the same @code{op_id}.
+The @code{GBytes} remains valid until finish.
+@end table
+
+For reads, emit @code{stcs_transport_emit_data_ready()} with the payload,
+or @code{stcs_transport_emit_data_error()} on failure. Writers enqueue
+via @code{stcs_transport_write()} (queue depth 1).
+
+@node Reader Plugin API
+@section Reader Plugin API
+
+Override on @code{STCSReaderClass}:
+
+@table @code
+@item configure
+Parse maps and options. Resolve datapoint ids with the provided lookup
+callback, then @code{stcs_reader_add_mapping(key, datapoint)}.
+@item parse
+Given a @code{GBytes} payload, extract values and call
+@code{stcs_reader_push_value(key, value)} for each mapped key.
+@end table
+
+The core binds the reader to its transport
+(@code{stcs_reader_set_transport}) and connects @code{data-ready} /
+@code{data-error}. Optional sync hooks wrap @code{parse} for feedback
+alignment.
+
+@node Writer Plugin API
+@section Writer Plugin API
+
+Override on @code{STCSWriterClass}:
+
+@table @code
+@item configure
+Parse template and maps; @code{stcs_writer_add_mapping(key, datapoint)}.
+@item write_value
+Called when a mapped datapoint changes. Update the outbound buffer and
+send it (typically @code{stcs_writer_write_bytes()}).
+@end table
+
+@code{<write-attempts>} is handled by the base writer (retry same bytes
+on transport write-error). Connect acknowledgement via the writer ack
+hook used by runlevel wiring.
+
+@node Transform Plugin API
+@section Transform Plugin API
+
+Override on @code{STCSTransformClass}:
+
+@table @code
+@item configure
+Parse transform-specific @acronym{XML}.
+@item process
+Map @code{in} → @code{*out}; return @code{FALSE} on error.
+@end table
+
+Transforms are owned by datapoints and run in order on every push.
+
+@node Examples Directory
+@chapter Examples Directory
+
+The @file{examples/} tree is not installed as a system service pack.
+The samples below are meant to be read alongside
+@ref{Thinking in Pipelines}: both are pure @emph{sensor} services---data
+enter STARTER; nothing is commanded.
+
+@section SpaceTrack (@file{examples/space-track/space-track.stcs.xml})
+
+@subheading What it does
+
+@command{ST:SpaceTrack} polls a public @acronym{HTTP} @acronym{API}
+(@uref{https://api.wheretheiss.at/v1/satellites/25544}) for the
+International Space Station (NORAD id 25544) and publishes three
+starter-core inputs:
+
+@itemize
+@item @code{SPTR:latitude}
+@item @code{SPTR:longitude}
+@item @code{SPTR:altitude} (kilometres)
+@end itemize
+
+There is no @code{<writers>} section and no @code{<outputs>}: the
+service only feeds the core. Any rule such as ``notify when the ISS is
+overhead'' would live in @command{starter-core}, not in this file.
+
+@subheading Pipeline sketch
+
+@example
+every 15 minutes:
+  GET wheretheiss.at JSON
+    → json-reader
+    → datapoints (round to 0.0001)
+    → SPTR:latitude / longitude / altitude
+@end example
+
+@subheading Block by block
+
+@table @asis
+@item @code{<global>}
+Registers the service as @code{ST:SpaceTrack} version @code{0.1.0} with
+starter-core / mDNS at runlevel 3.
+
+@item @code{<transports>} --- @code{iss-http}
+@code{http-transport} in read mode: @code{GET} the satellite URL,
+@code{Accept: application/json}, @code{auth type="none"}.
+@code{<poll-cron>0 0 */15 * * *</poll-cron>} fires every fifteen minutes
+on the clock (millisecond and second fields zero).
+
+@item @code{<datapoints>}
+Three ids (@code{latitude}, @code{longitude}, @code{altitude}). Each has
+a @code{formula-transform} that rounds to four decimal places
+(@code{floor(# * 10000 + 0.5) / 10000}) so tiny float jitter does not
+dominate history or rule chatter.
+
+@item @code{<readers>} --- @code{iss_json}
+@code{json-reader} bound to @code{iss-http}. Three maps copy
+@code{$.latitude}, @code{$.longitude}, and @code{$.altitude} into the
+matching datapoints. Values are already numeric in JSON, so no
+@code{<text-to-value>} is required.
+
+@item @code{<inputs>}
+Declares the three @acronym{ST} inputs with ranges suitable for Earth
+coordinates and LEO altitude. @code{unit="null"} (plain numbers);
+@code{step="0.0001"} matches the transform.
+
+@item @code{<bindings>}
+Links each datapoint to its input. That closes the read pipeline: after
+a successful poll, starter-core peers see updated @code{SPTR:*} values.
+@end table
+
+@subheading How to run it
+
+@example
+$ starter-configurable-service \
+    --config examples/space-track/space-track.stcs.xml
+@end example
+
+Requires network access to the @acronym{API}. Adjust @code{<poll-cron>}
+if you need a different refresh rate (respect the remote service's usage
+expectations).
+
+@section Shelly H&T (@file{examples/shelly-ht/shelly-ht.stcs.xml})
+
+@subheading What it does
+
+@command{ST:Shelly-HT} polls a Shelly Humidity & Temperature device on
+the local network (Gen1-style @code{/status} JSON) and publishes two
+starter-core inputs:
+
+@itemize
+@item @code{ShellyHT:temperature} (@code{celsius})
+@item @code{ShellyHT:humidity} (@code{percent})
+@end itemize
+
+Again there is no writer and no output: the device is treated only as a
+pair of sensors. Climate or alert rules belong in @command{starter-core}.
+
+@subheading Pipeline sketch
+
+@example
+every 15 seconds:
+  GET http://<device>/status
+    → json-reader ($.tmp.value / $.hum.value)
+    → datapoints temperature / humidity
+    → ShellyHT:temperature / ShellyHT:humidity
+@end example
+
+@subheading Block by block
+
+@table @asis
+@item @code{<global>}
+Registers @code{ST:Shelly-HT} version @code{0.1.0}.
+
+@item @code{<transports>} --- @code{status-http}
+@code{http-transport} @code{GET} to the device @code{/status} URL
+(placeholder @code{192.168.1.100}---change it to your H&T address),
+@code{Accept: application/json}, no auth.
+@code{<poll-cron>0 */15 * * * *</poll-cron>} runs every fifteen seconds.
+
+@item @code{<datapoints>}
+@code{temperature} and @code{humidity} with no transforms (the device
+already reports usable floats).
+
+@item @code{<readers>} --- @code{status-json}
+@code{json-reader} on @code{status-http}. Gen1 Shelly H&T nests the
+values under @code{$.tmp.value} and @code{$.hum.value}.
+
+@item @code{<inputs>}
+@code{ShellyHT:temperature} (@math{-10}..@math{50}@math{^\circ}C) and
+@code{ShellyHT:humidity} (0..100 %).
+
+@item @code{<bindings>}
+Each datapoint to its input---read pipeline complete.
+@end table
+
+@subheading How to run it
+
+@enumerate
+@item
+Edit @code{<url>} in the config so the host matches your Shelly H&T.
+@item
+Run:
+@end enumerate
+
+@example
+$ starter-configurable-service \
+    --config examples/shelly-ht/shelly-ht.stcs.xml
+@end example
+
+If your firmware exposes a different JSON layout (e.g.@: Gen2
+@code{Shelly.GetStatus}), adjust the @code{path=} attributes on the
+reader maps accordingly.
+
+@section Current Time (@file{examples/current-time/})
+
+@subheading What it does
+
+@command{ST:Time} runs a tiny helper binary (@command{current-time}) via
+@code{process-transport}. The helper prints one JSON object with local
+wall-clock fields and exits. @acronym{STCS} maps selected fields to
+starter-core inputs:
+
+@itemize
+@item @code{TIME:year}, @code{TIME:month}, @code{TIME:day}
+@item @code{TIME:hour}, @code{TIME:minute}
+@item @code{TIME:minuteOfDay} (minutes since local midnight)
+@end itemize
+
+This is the ``time as an input'' pattern from @ref{Thinking in
+Pipelines}: rules in @command{starter-core} can schedule on the clock;
+@acronym{STCS} only refreshes the numbers.
+
+@subheading Helper binary
+
+@file{examples/current-time/current-time.c} is built and installed as
+@code{$(bindir)/current-time}. Sample output:
+
+@example
+@{"year": 2026, "month": 10, "day": 3, "hour": 8, "minute": 15,
+ "second": 0, "dayMinutes": 495, "daySeconds": 29700,
+ "unix": 1759473300, "UTCOffset": 7200000000, "timezone": "CEST"@}
+@end example
+
+(Exact @code{UTCOffset} / @code{timezone} depend on the host.)
+
+@subheading Pipeline sketch
+
+@example
+every minute:
+  exec current-time → stdout JSON
+    → json-reader
+    → datapoints
+    → TIME:* inputs
+@end example
+
+@subheading Block by block
+
+@table @asis
+@item @code{<global>}
+Registers @code{ST:Time} version @code{0.1.0}.
+
+@item @code{<transports>} --- @code{current-time-process}
+@code{process-transport} in @code{read} mode. @code{<command>} points at
+the installed helper (@code{@@bindir@@/current-time} in the
+@file{.xml.in} template, substituted at build time).
+@code{<user>starter</user>} (change if that account is missing),
+@code{<timeout-ms>1000</timeout-ms>},
+@code{<poll-cron>0 1 * * * * *</poll-cron>} (every minute at second 1).
+
+@item @code{<datapoints>}
+Six ids matching the JSON keys we care about (@code{minuteOfDay} is fed
+from @code{dayMinutes}).
+
+@item @code{<readers>} --- @code{current-time-json}
+@code{json-reader} maps @code{$.year} @dots{} @code{$.minute} and
+@code{$.dayMinutes} → @code{minuteOfDay}. Unused helper fields are
+ignored.
+
+@item @code{<inputs>}
+@code{TIME:*} with @code{flags="no-history"} so minute ticks do not fill
+the core history database.
+
+@item @code{<bindings>}
+Each datapoint to its input.
+@end table
+
+@subheading How to run it
+
+@example
+$ ./configure && make && sudo make install
+$ starter-configurable-service \
+    --config $(prefix)/share/starter-configurable-service/examples/current-time/current-time.stcs.xml
+@end example
+
+Or point @option{--config} at the generated
+@file{examples/current-time/current-time.stcs.xml} in the build tree after
+@command{make}, and ensure @code{<command>} matches where the binary
+was installed (or run from a tree where @code{bindir} was set
+accordingly). The process-transport @code{<user>} must exist on the host
+and the service must be allowed to @code{setuid} to it.
+
+@node Copying
+@appendix Copying
+
+This program is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation, either version 3 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+Bundled third-party code is described in the following appendix; the
+GPL applies to this project as a whole, while TinyExpr remains under the
+Zlib license.
+
+@node Third-party Components
+@appendix Third-party Components
+
+@section TinyExpr
+
+The @code{formula-transform} plugin embeds
+@uref{https://codeplea.com/tinyexpr,TinyExpr}, written by Lewis Van Winkle
+(@uref{http://CodePlea.com}). The sources shipped in this tree are the
+upstream files with their original copyright and license notice retained
+(@file{plugins/transform/formula-transform/tinyexpr.c} and
+@file{tinyexpr.h}). A copy of the notice is also in @file{COPYING.ZLIB}.
+
+@include zlib.texi
+
+@node GNU Free Documentation License
+@appendix GNU Free Documentation License
+
+@include fdl.texi
+
+@node GNU General Public License
+@appendix GNU General Public License
+
+@include gpl.texi
+
+@bye
