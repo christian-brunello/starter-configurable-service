@@ -335,7 +335,6 @@ Detailed bind attributes are in @ref{Bindings Reference}.
 @item @command{starter-core} (pkg-config module @code{starter-core})
 @item libxml2
 @item json-glib
-@item SQLite3
 @item libsoup 3.x, or libsoup 2.4 @math{\ge} 2.58
 @item Autotools (@command{autoconf}, @command{automake}, @command{libtool})
 @item Texinfo (@command{makeinfo}) to build this manual

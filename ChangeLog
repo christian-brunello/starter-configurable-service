@@ -1,5 +1,10 @@
 2026-10-03  Christian Brunello  <brncrs@gmail.com>
 
+	Drop unused SQLite3 dependency left over from tools/.
+
+	* configure.ac, README, doc/starter-configurable-service.texi:
+	Remove sqlite3 pkg-config check and prerequisite listings.
+
 	Add GPL/LGPL license headers matching starter-core.
 
 	* include/, lib/: LGPL 2.1+ headers on library sources and

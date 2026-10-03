@@ -669,8 +669,6 @@ HAVE_LIBSOUP_3_FALSE
 HAVE_LIBSOUP_3_TRUE
 LIBSOUP_LIBS
 LIBSOUP_CFLAGS
-SQLITE3_LIBS
-SQLITE3_CFLAGS
 JSON_GLIB_LIBS
 JSON_GLIB_CFLAGS
 LIBXML2_LIBS
@@ -832,8 +830,6 @@ LIBXML2_CFLAGS
 LIBXML2_LIBS
 JSON_GLIB_CFLAGS
 JSON_GLIB_LIBS
-SQLITE3_CFLAGS
-SQLITE3_LIBS
 LIBSOUP_CFLAGS
 LIBSOUP_LIBS'
 
@@ -1517,10 +1513,6 @@ Some influential environment variables:
               C compiler flags for JSON_GLIB, overriding pkg-config
   JSON_GLIB_LIBS
               linker flags for JSON_GLIB, overriding pkg-config
-  SQLITE3_CFLAGS
-              C compiler flags for SQLITE3, overriding pkg-config
-  SQLITE3_LIBS
-              linker flags for SQLITE3, overriding pkg-config
   LIBSOUP_CFLAGS
               C compiler flags for LIBSOUP, overriding pkg-config
   LIBSOUP_LIBS
@@ -13170,97 +13162,6 @@ printf "%s\n" "yes" >&6; }
 
 fi
 
-pkg_failed=no
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for sqlite3" >&5
-printf %s "checking for sqlite3... " >&6; }
-
-if test -n "$SQLITE3_CFLAGS"; then
-    pkg_cv_SQLITE3_CFLAGS="$SQLITE3_CFLAGS"
- elif test -n "$PKG_CONFIG"; then
-    if test -n "$PKG_CONFIG" && \
-    { { printf "%s\n" "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"sqlite3\""; } >&5
-  ($PKG_CONFIG --exists --print-errors "sqlite3") 2>&5
-  ac_status=$?
-  printf "%s\n" "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
-  test $ac_status = 0; }; then
-  pkg_cv_SQLITE3_CFLAGS=`$PKG_CONFIG --cflags "sqlite3" 2>/dev/null`
-		      test "x$?" != "x0" && pkg_failed=yes
-else
-  pkg_failed=yes
-fi
- else
-    pkg_failed=untried
-fi
-if test -n "$SQLITE3_LIBS"; then
-    pkg_cv_SQLITE3_LIBS="$SQLITE3_LIBS"
- elif test -n "$PKG_CONFIG"; then
-    if test -n "$PKG_CONFIG" && \
-    { { printf "%s\n" "$as_me:${as_lineno-$LINENO}: \$PKG_CONFIG --exists --print-errors \"sqlite3\""; } >&5
-  ($PKG_CONFIG --exists --print-errors "sqlite3") 2>&5
-  ac_status=$?
-  printf "%s\n" "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
-  test $ac_status = 0; }; then
-  pkg_cv_SQLITE3_LIBS=`$PKG_CONFIG --libs "sqlite3" 2>/dev/null`
-		      test "x$?" != "x0" && pkg_failed=yes
-else
-  pkg_failed=yes
-fi
- else
-    pkg_failed=untried
-fi
-
-
-
-if test $pkg_failed = yes; then
-        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
-printf "%s\n" "no" >&6; }
-
-if $PKG_CONFIG --atleast-pkgconfig-version 0.20; then
-        _pkg_short_errors_supported=yes
-else
-        _pkg_short_errors_supported=no
-fi
-        if test $_pkg_short_errors_supported = yes; then
-	        SQLITE3_PKG_ERRORS=`$PKG_CONFIG --short-errors --print-errors --cflags --libs "sqlite3" 2>&1`
-        else
-	        SQLITE3_PKG_ERRORS=`$PKG_CONFIG --print-errors --cflags --libs "sqlite3" 2>&1`
-        fi
-	# Put the nasty error message in config.log where it belongs
-	echo "$SQLITE3_PKG_ERRORS" >&5
-
-	as_fn_error $? "Package requirements (sqlite3) were not met:
-
-$SQLITE3_PKG_ERRORS
-
-Consider adjusting the PKG_CONFIG_PATH environment variable if you
-installed software in a non-standard prefix.
-
-Alternatively, you may set the environment variables SQLITE3_CFLAGS
-and SQLITE3_LIBS to avoid the need to call pkg-config.
-See the pkg-config man page for more details." "$LINENO" 5
-elif test $pkg_failed = untried; then
-        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: no" >&5
-printf "%s\n" "no" >&6; }
-	{ { printf "%s\n" "$as_me:${as_lineno-$LINENO}: error: in \`$ac_pwd':" >&5
-printf "%s\n" "$as_me: error: in \`$ac_pwd':" >&2;}
-as_fn_error $? "The pkg-config script could not be found or is too old.  Make sure it
-is in your PATH or set the PKG_CONFIG environment variable to the full
-path to pkg-config.
-
-Alternatively, you may set the environment variables SQLITE3_CFLAGS
-and SQLITE3_LIBS to avoid the need to call pkg-config.
-See the pkg-config man page for more details.
-
-To get pkg-config, see <http://pkg-config.freedesktop.org/>.
-See \`config.log' for more details" "$LINENO" 5; }
-else
-	SQLITE3_CFLAGS=$pkg_cv_SQLITE3_CFLAGS
-	SQLITE3_LIBS=$pkg_cv_SQLITE3_LIBS
-        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: yes" >&5
-printf "%s\n" "yes" >&6; }
-
-fi
-
 # GLib APIs added after Ubuntu 20.04's 2.64 (e.g. g_string_replace @ 2.68)
 saved_CFLAGS=$CFLAGS
 saved_LIBS=$LIBS
@@ -13547,8 +13448,6 @@ fi
 
 STCS_CFLAGS="$GLIB_CFLAGS $STARTER_CFLAGS $LIBXML2_CFLAGS"
 STCS_LIBS="$GLIB_LIBS $STARTER_LIBS $LIBXML2_LIBS"
-
-
 
 
 

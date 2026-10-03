@@ -26,7 +26,6 @@ For the full technical manual, build the PDF with:
 * starter-core (pkg-config: starter-core)
 * libxml2 (libxml2-dev)
 * json-glib (libjson-glib-dev)
-* SQLite3 (libsqlite3-dev)
 * libsoup 3.x or 2.4 >= 2.58 (libsoup-3.0-dev or libsoup2.4-dev)
 * Autotools (autoconf, automake, libtool)
 * Texinfo (makeinfo) to build the manual
