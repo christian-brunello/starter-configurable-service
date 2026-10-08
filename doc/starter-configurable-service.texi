@@ -393,9 +393,29 @@ Print the version string and exit.
 @node Logging
 @section Logging
 
-The service uses GLib message logging. Domains follow component names.
-Use the usual GLib environment variables (@env{G_MESSAGES_DEBUG},
-@dots{}) when debugging.
+The service uses GLib message logging. Domains follow component names
+(e.g.@: @code{http-transport}, @code{datapoint}, @code{process-transport}).
+
+@strong{DEBUG} and @strong{INFO} are off by default so journald is not
+flooded on every poll. Enable them with @env{G_MESSAGES_DEBUG}:
+
+@example
+# everything
+G_MESSAGES_DEBUG=all starter-configurable-service --config …
+
+# one or more domains (space-separated)
+G_MESSAGES_DEBUG="http-transport datapoint" \
+  starter-configurable-service --config …
+@end example
+
+Under systemd, set it in the unit:
+
+@example
+[Service]
+Environment=G_MESSAGES_DEBUG=all
+@end example
+
+@strong{WARNING}, @strong{CRITICAL}, and @strong{ERROR} always appear.
 
 @node Configuration Overview
 @chapter Configuration Overview

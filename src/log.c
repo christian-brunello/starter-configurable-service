@@ -18,70 +18,117 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "internals.h"
 
 static char *instance_tag = NULL;
 
-static void stcs_log_handler (const gchar * log_domain,
-			      GLogLevelFlags log_level,
-			      const gchar * message, 
-			      gpointer user_data)
+/*
+ * Match GLib's default writer: DEBUG and INFO are silent unless the
+ * domain (or "all") appears in G_MESSAGES_DEBUG. Without this filter the
+ * custom handler floods journald on every poll/datapoint push.
+ */
+static gboolean
+stcs_log_debug_enabled(const gchar *log_domain)
 {
-  GDateTime *now = g_date_time_new_now_local ();
-  gchar *timestamp = g_date_time_format (now, "%Y-%m-%d %H:%M:%S");
+  const gchar *domains;
+  const gchar *p;
+  gsize domain_len;
 
-  (void) user_data;
+  domains = g_getenv("G_MESSAGES_DEBUG");
+  if (domains == NULL || *domains == '\0')
+    return FALSE;
 
+  if (strcmp(domains, "all") == 0)
+    return TRUE;
+
+  if (log_domain == NULL || *log_domain == '\0')
+    return FALSE;
+
+  domain_len = strlen(log_domain);
+  p = domains;
+  while (*p != '\0')
+    {
+      while (*p == ' ')
+	p++;
+      if (*p == '\0')
+	break;
+      if (strncmp(p, log_domain, domain_len) == 0 &&
+	  (p[domain_len] == '\0' || p[domain_len] == ' '))
+	return TRUE;
+      while (*p != '\0' && *p != ' ')
+	p++;
+    }
+
+  return FALSE;
+}
+
+static void
+stcs_log_handler(const gchar *log_domain,
+		 GLogLevelFlags log_level,
+		 const gchar *message,
+		 gpointer user_data)
+{
+  GDateTime *now = NULL;
+  gchar *timestamp = NULL;
   const gchar *level_str = "UNKNOWN";
   const gchar *color_start = "";
   const gchar *color_end = "\033[0m";
 
-  /* Mappatura dei livelli di log GLib con etichette e colori ANSI per terminale */
+  (void) user_data;
+
+  if ((log_level & (G_LOG_LEVEL_DEBUG | G_LOG_LEVEL_INFO)) != 0 &&
+      !stcs_log_debug_enabled(log_domain))
+    return;
+
+  now = g_date_time_new_now_local();
+  timestamp = g_date_time_format(now, "%Y-%m-%d %H:%M:%S");
+
   if (log_level & G_LOG_LEVEL_ERROR)
     {
       level_str = "ERROR";
-      color_start = "\033[1;31m";	/* Rosso */
+      color_start = "\033[1;31m";
     }
   else if (log_level & G_LOG_LEVEL_CRITICAL)
     {
       level_str = "CRITICAL";
-      color_start = "\033[1;35m";	/* Magenta */
+      color_start = "\033[1;35m";
     }
   else if (log_level & G_LOG_LEVEL_WARNING)
     {
       level_str = "WARN";
-      color_start = "\033[1;33m";	/* Giallo */
+      color_start = "\033[1;33m";
     }
   else if (log_level & G_LOG_LEVEL_MESSAGE)
     {
       level_str = "MESSAGE";
-      color_start = "\033[1;32m";	/* Verde */
+      color_start = "\033[1;32m";
     }
   else if (log_level & G_LOG_LEVEL_INFO)
     {
       level_str = "INFO";
-      color_start = "\033[1;36m";	/* Ciano */
+      color_start = "\033[1;36m";
     }
   else if (log_level & G_LOG_LEVEL_DEBUG)
     {
       level_str = "DEBUG";
-      color_start = "\033[0;37m";	/* Grigio */
+      color_start = "\033[0;37m";
     }
 
-  /* Stampa formattata su stderr */
-  g_printerr ("[%s] %s[%-8s]%s [%s:%s] %s\n",
-	      timestamp,
-	      color_start, level_str, color_end,
-	      instance_tag,
-	      log_domain, 
-	      message);
+  g_printerr("[%s] %s[%-8s]%s [%s:%s] %s\n",
+	     timestamp,
+	     color_start, level_str, color_end,
+	     instance_tag,
+	     log_domain != NULL ? log_domain : "?",
+	     message);
 
-  g_free (timestamp);
-  g_date_time_unref (now);
+  g_free(timestamp);
+  g_date_time_unref(now);
 }
 
-void stcs_internals_log_init(const char *_instance_tag)
+void
+stcs_internals_log_init(const char *_instance_tag)
 {
   g_free(instance_tag);
 
@@ -89,4 +136,3 @@ void stcs_internals_log_init(const char *_instance_tag)
 
   g_log_set_default_handler(stcs_log_handler, NULL);
 }
-

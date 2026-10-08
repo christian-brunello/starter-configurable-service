@@ -808,6 +808,10 @@ stcs_stream_writer_configure(STCSWriter *writer,
       if (xmlStrEqual(child->name, (const xmlChar *) "template"))
 	continue;
 
+      /* Parsed by config.c on the writer base class. */
+      if (xmlStrEqual(child->name, (const xmlChar *) "write-attempts"))
+	continue;
+
       if (!xmlStrEqual(child->name, (const xmlChar *) "map"))
 	{
 	  g_set_error(error,
