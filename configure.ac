@@ -81,6 +81,7 @@ AC_CONFIG_FILES([
   plugins/transport/file-transport/Makefile
   plugins/transport/http-transport/Makefile
   plugins/transport/process-transport/Makefile
+  plugins/transport/adapter-transport/Makefile
   plugins/reader/Makefile
   plugins/reader/json-reader/Makefile
   plugins/reader/stream-reader/Makefile

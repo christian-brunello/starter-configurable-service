@@ -37,6 +37,7 @@ G_DECLARE_FINAL_TYPE(STCSJSONReader, stcs_json_reader, STCS, JSON_READER, STCSRe
 struct _STCSJSONReader {
   STCSReader parent_instance;
   GHashTable *text_to_values; /* path → STCSTextToValue* */
+  gboolean suppress_missing_path_warnings;
 };
 
 G_DEFINE_TYPE(STCSJSONReader, stcs_json_reader, STCS_TYPE_READER)
@@ -227,7 +228,10 @@ stcs_json_reader_parse_key(const gchar *key,
 
   if (!stcs_json_reader_extract_path(ctx->root, key, converter, &value, &local_error))
     {
-      LOGW("path `%s': %s", key, local_error ? local_error->message : "unknown error");
+      if (ctx->json_reader->suppress_missing_path_warnings)
+	LOGD("path `%s': %s", key, local_error ? local_error->message : "unknown error");
+      else
+	LOGW("path `%s': %s", key, local_error ? local_error->message : "unknown error");
       g_clear_error(&local_error);
       return;
     }
@@ -360,6 +364,27 @@ out:
 }
 
 static gboolean
+stcs_json_reader_parse_bool(const gchar *text, gboolean *out, GError **error)
+{
+  if (g_ascii_strcasecmp(text, "true") == 0 || g_strcmp0(text, "1") == 0)
+    {
+      *out = TRUE;
+      return TRUE;
+    }
+  if (g_ascii_strcasecmp(text, "false") == 0 || g_strcmp0(text, "0") == 0)
+    {
+      *out = FALSE;
+      return TRUE;
+    }
+
+  g_set_error(error,
+	      G_IO_ERROR,
+	      G_IO_ERROR_INVALID_DATA,
+	      "invalid boolean `%s'", text);
+  return FALSE;
+}
+
+static gboolean
 stcs_json_reader_configure(STCSReader *reader,
 			   xmlNodePtr node,
 			   STCSDatapointLookupFunc lookup_datapoint,
@@ -372,11 +397,31 @@ stcs_json_reader_configure(STCSReader *reader,
   g_return_val_if_fail(lookup_datapoint != NULL, FALSE);
 
   g_hash_table_remove_all(self->text_to_values);
+  self->suppress_missing_path_warnings = FALSE;
 
   for (child = node->children; child != NULL; child = child->next)
     {
       if (child->type != XML_ELEMENT_NODE)
 	continue;
+
+      if (xmlStrEqual(child->name, (const xmlChar *) "suppress-missing-path-warnings"))
+	{
+	  xmlChar *content = xmlNodeGetContent(child);
+	  gboolean v = FALSE;
+
+	  if (content == NULL || *content == '\0'
+	      || !stcs_json_reader_parse_bool((const gchar *) content, &v, error))
+	    {
+	      if (content != NULL && *content != '\0' && error != NULL && *error == NULL)
+		g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+			    "suppress-missing-path-warnings requires true/false");
+	      xmlFree(content);
+	      return FALSE;
+	    }
+	  self->suppress_missing_path_warnings = v;
+	  xmlFree(content);
+	  continue;
+	}
 
       if (!xmlStrEqual(child->name, (const xmlChar *) "map"))
 	{
@@ -473,6 +518,7 @@ stcs_json_reader_class_init(STCSJSONReaderClass *klass)
 static void
 stcs_json_reader_init(STCSJSONReader *self)
 {
+  self->suppress_missing_path_warnings = FALSE;
   self->text_to_values = g_hash_table_new_full(g_str_hash,
 						g_str_equal,
 						g_free,

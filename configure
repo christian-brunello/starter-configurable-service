@@ -13570,7 +13570,7 @@ fi
 
 # =========================================================
 
-ac_config_files="$ac_config_files Makefile include/Makefile lib/Makefile src/Makefile plugins/Makefile plugins/transport/Makefile plugins/transport/file-transport/Makefile plugins/transport/http-transport/Makefile plugins/transport/process-transport/Makefile plugins/reader/Makefile plugins/reader/json-reader/Makefile plugins/reader/stream-reader/Makefile plugins/writer/Makefile plugins/writer/json-writer/Makefile plugins/writer/stream-writer/Makefile plugins/transform/Makefile plugins/transform/formula-transform/Makefile plugins/transform/sampling-transform/Makefile examples/Makefile examples/current-time/Makefile doc/Makefile"
+ac_config_files="$ac_config_files Makefile include/Makefile lib/Makefile src/Makefile plugins/Makefile plugins/transport/Makefile plugins/transport/file-transport/Makefile plugins/transport/http-transport/Makefile plugins/transport/process-transport/Makefile plugins/transport/adapter-transport/Makefile plugins/reader/Makefile plugins/reader/json-reader/Makefile plugins/reader/stream-reader/Makefile plugins/writer/Makefile plugins/writer/json-writer/Makefile plugins/writer/stream-writer/Makefile plugins/transform/Makefile plugins/transform/formula-transform/Makefile plugins/transform/sampling-transform/Makefile examples/Makefile examples/current-time/Makefile doc/Makefile"
 
 
 cat >confcache <<\_ACEOF
@@ -14592,6 +14592,7 @@ do
     "plugins/transport/file-transport/Makefile") CONFIG_FILES="$CONFIG_FILES plugins/transport/file-transport/Makefile" ;;
     "plugins/transport/http-transport/Makefile") CONFIG_FILES="$CONFIG_FILES plugins/transport/http-transport/Makefile" ;;
     "plugins/transport/process-transport/Makefile") CONFIG_FILES="$CONFIG_FILES plugins/transport/process-transport/Makefile" ;;
+    "plugins/transport/adapter-transport/Makefile") CONFIG_FILES="$CONFIG_FILES plugins/transport/adapter-transport/Makefile" ;;
     "plugins/reader/Makefile") CONFIG_FILES="$CONFIG_FILES plugins/reader/Makefile" ;;
     "plugins/reader/json-reader/Makefile") CONFIG_FILES="$CONFIG_FILES plugins/reader/json-reader/Makefile" ;;
     "plugins/reader/stream-reader/Makefile") CONFIG_FILES="$CONFIG_FILES plugins/reader/stream-reader/Makefile" ;;
