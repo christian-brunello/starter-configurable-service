@@ -404,7 +404,9 @@ stcs_json_writer_configure(STCSWriter *writer,
       if (child->type != XML_ELEMENT_NODE)
 	continue;
 
-      if (xmlStrEqual(child->name, (const xmlChar *) "write-attempts"))
+      /* Parsed by config.c on the writer base class. */
+      if (xmlStrEqual(child->name, (const xmlChar *) "write-attempts") ||
+	  xmlStrEqual(child->name, (const xmlChar *) "write-retry-backoff"))
 	continue;
 
       if (xmlStrEqual(child->name, (const xmlChar *) "map"))

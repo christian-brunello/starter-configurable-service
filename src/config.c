@@ -68,6 +68,11 @@ static gboolean parse_outputs_node(STCSContext *context, xmlNodePtr node, GError
 static gboolean parse_output_node(STCSContext *context, xmlNodePtr node, GError **error);
 static gboolean parse_bindings_node(STCSContext *context, xmlNodePtr node, GError **error);
 static gboolean parse_bind_node(STCSContext *context, xmlNodePtr node, GError **error);
+static gboolean parse_duration_text(const char *text,
+				    guint64 *out_ms,
+				    gboolean allow_zero,
+				    const char *what,
+				    GError **error);
 
 /*
  * A transport may be bound to at most one reader or one writer.
@@ -923,14 +928,53 @@ static gboolean parse_writer_node(STCSContext *context, xmlNodePtr node, GError 
 
 	  stcs_writer_set_write_attempts(writer, (guint) attempts);
 	}
+      else if (xmlStrEqual(child->name, (const xmlChar *) "write-retry-backoff"))
+	{
+	  xmlChar *content;
+	  const char *text;
+	  guint64 backoff_ms = 0;
+
+	  content = xmlNodeGetContent(child);
+	  if (content == NULL)
+	    {
+	      g_set_error(error,
+			  G_IO_ERROR,
+			  G_IO_ERROR_INVALID_DATA,
+			  "<write-retry-backoff> for writer `%s' is empty",
+			  id);
+	      goto out;
+	    }
+
+	  text = g_strstrip((char *) content);
+	  if (!parse_duration_text(text, &backoff_ms, TRUE, "<write-retry-backoff>", error))
+	    {
+	      xmlFree(content);
+	      goto out;
+	    }
+	  xmlFree(content);
+
+	  if (backoff_ms > G_MAXUINT)
+	    {
+	      g_set_error(error,
+			  G_IO_ERROR,
+			  G_IO_ERROR_INVALID_DATA,
+			  "<write-retry-backoff> for writer `%s' is too large",
+			  id);
+	      goto out;
+	    }
+
+	  stcs_writer_set_write_retry_backoff_ms(writer, (guint) backoff_ms);
+	}
     }
 
   if (!stcs_writer_configure(writer, node, config_lookup_datapoint, context, error))
     goto out;
 
   g_hash_table_insert(context->writers, g_strdup(id), g_object_ref(writer));
-  LOGI("registered writer id=%s plugin=%s transport=%s write-attempts=%u",
-       id, plugin_name, transport_id, stcs_writer_get_write_attempts(writer));
+  LOGI("registered writer id=%s plugin=%s transport=%s write-attempts=%u write-retry-backoff-ms=%u",
+       id, plugin_name, transport_id,
+       stcs_writer_get_write_attempts(writer),
+       stcs_writer_get_write_retry_backoff_ms(writer));
   r = TRUE;
 
 out:

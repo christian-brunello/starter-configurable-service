@@ -10,12 +10,12 @@ Date context: 2026-09-17.
 - [x] Retry same bytes up to `<write-attempts>` (default 1); no retry on `CANCELLED`
 - [x] HTTP poll async + cron; Ubuntu 20.04 / libsoup2 compat
 - [x] Config: transport exclusive to one reader **or** one writer; warn if unbound
+- [x] **Retry backoff / delay.** `<write-retry-backoff>` (duration); exponential `base * 2^(n-1)`, capped at 60s; new command cancels pending retry timer
 
 ## High priority
 
 - [ ] **HTTP write: cancellable + epoch** (mirror poll). Today write passes `NULL` cancellable; dispose/reconfigure does not abort in-flight writes cleanly.
 - [ ] **Async (or non-blocking) login on write path.** `do_login` / `ensure_auth` and 401 relogin are synchronous and can block the main loop.
-- [ ] **Retry backoff / delay.** Immediate re-enqueue can hammer a failing endpoint; file write can stack N sync attempts on the main loop.
 
 ## Medium priority
 
@@ -56,4 +56,5 @@ Feedback (role=feedback):
 - `settle-delay` on feedback `<bind>`: default `5s`; `0` disables; armed on each command write.
 - Transport: queue depth 1; newer write replaces pending (`CANCELLED`).
 - Config: `<write-attempts>` under `<writer>` (total attempts, min 1).
+- Config: `<write-retry-backoff>` under `<writer>` (`ms`/`s`/`m`/`h` or bare ms; `0` = immediate).
 - Config: each transport binds to at most one reader or one writer (not both, not shared).

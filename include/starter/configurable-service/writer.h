@@ -76,6 +76,13 @@ void stcs_writer_set_write_attempts(STCSWriter *self, guint attempts);
 guint stcs_writer_get_write_attempts(STCSWriter *self);
 
 /*
+ * Base delay before a write retry. Default 0 (immediate re-enqueue).
+ * Delay before the next attempt is min(60s, backoff_ms * 2^(failed_attempt-1)).
+ */
+void stcs_writer_set_write_retry_backoff_ms(STCSWriter *self, guint backoff_ms);
+guint stcs_writer_get_write_retry_backoff_ms(STCSWriter *self);
+
+/*
  * Map a plugin-chosen opaque key to a datapoint (takes a reference).
  * Multiple datapoints may share the same key; each gets its own value-changed
  * handler that forwards to write_value() with that key.

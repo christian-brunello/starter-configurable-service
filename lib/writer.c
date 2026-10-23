@@ -30,14 +30,19 @@ typedef struct {
   gulong handler_id;
 } STCSWriterMapping;
 
+/* Cap exponential retry wait so a dead endpoint does not stall forever. */
+#define STCS_WRITER_RETRY_BACKOFF_MAX_MS 60000u
+
 typedef struct _STCSWriterPrivate {
   STCSTransport *transport;
   GHashTable *mappings; /* key → GPtrArray of STCSWriterMapping* */
   guint write_attempts; /* total attempts per payload; default 1 */
+  guint write_retry_backoff_ms; /* base delay; 0 = immediate retry */
   guint attempt;        /* 1-based attempt for last_bytes */
   guint64 last_op_id;
   GBytes *last_bytes;
   gchar *last_ack_datapoint_id;
+  guint retry_timeout_id;
   gulong write_complete_id;
   gulong write_error_id;
   STCSWriterAckHook ack_hook;
@@ -45,6 +50,8 @@ typedef struct _STCSWriterPrivate {
 } STCSWriterPrivate;
 
 G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE(STCSWriter, stcs_writer, G_TYPE_OBJECT)
+
+static void stcs_writer_emit_ack(STCSWriterPrivate *priv, gboolean success);
 
 static void
 stcs_writer_mapping_free(gpointer data)
@@ -63,12 +70,115 @@ stcs_writer_mapping_free(gpointer data)
 }
 
 static void
+stcs_writer_cancel_retry_timeout(STCSWriterPrivate *priv)
+{
+  if (priv->retry_timeout_id != 0)
+    {
+      g_source_remove(priv->retry_timeout_id);
+      priv->retry_timeout_id = 0;
+    }
+}
+
+static void
 stcs_writer_clear_write_state(STCSWriterPrivate *priv)
 {
+  stcs_writer_cancel_retry_timeout(priv);
   priv->last_op_id = 0;
   priv->attempt = 0;
   g_clear_pointer(&priv->last_bytes, g_bytes_unref);
   g_clear_pointer(&priv->last_ack_datapoint_id, g_free);
+}
+
+static guint
+stcs_writer_retry_delay_ms(const STCSWriterPrivate *priv)
+{
+  guint shift;
+  guint64 delay;
+
+  if (priv->write_retry_backoff_ms == 0)
+    return 0;
+
+  /* After failed attempt N, wait base * 2^(N-1) before attempt N+1. */
+  shift = priv->attempt > 0 ? priv->attempt - 1 : 0;
+  if (shift > 16)
+    shift = 16;
+
+  delay = (guint64) priv->write_retry_backoff_ms << shift;
+  if (delay > STCS_WRITER_RETRY_BACKOFF_MAX_MS)
+    delay = STCS_WRITER_RETRY_BACKOFF_MAX_MS;
+
+  return (guint) delay;
+}
+
+static gboolean
+stcs_writer_enqueue_retry(STCSWriter *self)
+{
+  STCSWriterPrivate *priv = stcs_writer_get_instance_private(self);
+  GError *retry_error = NULL;
+  guint64 new_op_id;
+
+  if (priv->transport == NULL || priv->last_bytes == NULL)
+    {
+      LOGW("write retry aborted: no transport or payload");
+      stcs_writer_emit_ack(priv, FALSE);
+      stcs_writer_clear_write_state(priv);
+      return G_SOURCE_REMOVE;
+    }
+
+  new_op_id = stcs_transport_write(priv->transport, priv->last_bytes, &retry_error);
+  if (new_op_id == 0)
+    {
+      LOGW("write retry enqueue failed: %s",
+	   retry_error ? retry_error->message : "unknown error");
+      g_clear_error(&retry_error);
+      stcs_writer_emit_ack(priv, FALSE);
+      stcs_writer_clear_write_state(priv);
+      return G_SOURCE_REMOVE;
+    }
+
+  priv->last_op_id = new_op_id;
+  priv->attempt++;
+  LOGD("write retry enqueued op_id=%" G_GUINT64_FORMAT " attempt %u/%u",
+       new_op_id, priv->attempt, priv->write_attempts);
+  return G_SOURCE_REMOVE;
+}
+
+static gboolean
+stcs_writer_retry_timeout_cb(gpointer user_data)
+{
+  STCSWriter *self = user_data;
+  STCSWriterPrivate *priv = stcs_writer_get_instance_private(self);
+
+  priv->retry_timeout_id = 0;
+  return stcs_writer_enqueue_retry(self);
+}
+
+static void
+stcs_writer_schedule_retry(STCSWriter *self, GError *error)
+{
+  STCSWriterPrivate *priv = stcs_writer_get_instance_private(self);
+  guint delay_ms;
+
+  delay_ms = stcs_writer_retry_delay_ms(priv);
+  priv->last_op_id = 0;
+  stcs_writer_cancel_retry_timeout(priv);
+
+  if (delay_ms == 0)
+    {
+      LOGI("write-error attempt %u/%u — retrying immediately: %s",
+	   priv->attempt,
+	   priv->write_attempts,
+	   error ? error->message : "unknown error");
+      stcs_writer_enqueue_retry(self);
+      return;
+    }
+
+  LOGI("write-error attempt %u/%u — retrying in %u ms: %s",
+       priv->attempt,
+       priv->write_attempts,
+       delay_ms,
+       error ? error->message : "unknown error");
+  priv->retry_timeout_id = g_timeout_add(delay_ms, stcs_writer_retry_timeout_cb, self);
 }
 
 static void
@@ -177,8 +287,6 @@ stcs_writer_on_write_error(STCSTransport *transport,
 {
   STCSWriter *self = user_data;
   STCSWriterPrivate *priv = stcs_writer_get_instance_private(self);
-  GError *retry_error = NULL;
-  guint64 new_op_id;
 
   (void) transport;
 
@@ -214,24 +322,7 @@ stcs_writer_on_write_error(STCSTransport *transport,
       return;
     }
 
-  LOGI("write-error op_id=%" G_GUINT64_FORMAT " attempt %u/%u — retrying: %s",
-       op_id,
-       priv->attempt,
-       priv->write_attempts,
-       error ? error->message : "unknown error");
-
-  new_op_id = stcs_transport_write(priv->transport, priv->last_bytes, &retry_error);
-  if (new_op_id == 0)
-    {
-      LOGW("write retry enqueue failed: %s",
-	   retry_error ? retry_error->message : "unknown error");
-      g_clear_error(&retry_error);
-      stcs_writer_clear_write_state(priv);
-      return;
-    }
-
-  priv->last_op_id = new_op_id;
-  priv->attempt++;
+  stcs_writer_schedule_retry(self, error);
 }
 
 static gboolean
@@ -302,6 +393,8 @@ stcs_writer_init(STCSWriter *self)
 
   priv->transport = NULL;
   priv->write_attempts = 1;
+  priv->write_retry_backoff_ms = 0;
+  priv->retry_timeout_id = 0;
   priv->last_ack_datapoint_id = NULL;
   priv->ack_hook = NULL;
   priv->ack_hook_data = NULL;
@@ -408,6 +501,28 @@ stcs_writer_get_write_attempts(STCSWriter *self)
 
   priv = stcs_writer_get_instance_private(self);
   return priv->write_attempts;
+}
+
+void
+stcs_writer_set_write_retry_backoff_ms(STCSWriter *self, guint backoff_ms)
+{
+  STCSWriterPrivate *priv;
+
+  g_return_if_fail(STCS_IS_WRITER(self));
+
+  priv = stcs_writer_get_instance_private(self);
+  priv->write_retry_backoff_ms = backoff_ms;
+}
+
+guint
+stcs_writer_get_write_retry_backoff_ms(STCSWriter *self)
+{
+  STCSWriterPrivate *priv;
+
+  g_return_val_if_fail(STCS_IS_WRITER(self), 0);
+
+  priv = stcs_writer_get_instance_private(self);
+  return priv->write_retry_backoff_ms;
 }
 
 void
@@ -536,18 +651,21 @@ stcs_writer_write_bytes(STCSWriter *self, GBytes *data, GError **error)
       return FALSE;
     }
 
+  /* New command replaces any in-progress retry tracking. */
+  stcs_writer_cancel_retry_timeout(priv);
+
   op_id = stcs_transport_write(priv->transport, data, error);
   if (op_id == 0)
     return FALSE;
 
-  /* New command replaces any in-progress retry tracking. */
   g_clear_pointer(&priv->last_bytes, g_bytes_unref);
   priv->last_bytes = g_bytes_ref(data);
   priv->last_op_id = op_id;
   priv->attempt = 1;
 
   LOGD("enqueued %" G_GSIZE_FORMAT " bytes to transport (op_id=%" G_GUINT64_FORMAT
-       " attempt 1/%u)",
-       g_bytes_get_size(data), op_id, priv->write_attempts);
+       " attempt 1/%u backoff_ms=%u)",
+       g_bytes_get_size(data), op_id, priv->write_attempts,
+       priv->write_retry_backoff_ms);
   return TRUE;
 }
